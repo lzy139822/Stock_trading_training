@@ -22,6 +22,7 @@ _DEFAULT_CONFIG = {
     "default_main_overlays": ["MA"],
     "ma_periods": [5, 10, 20, 30, 60, 120],   # 主图均线周期（最多 6 条）
     "ma_enabled": True,                         # 是否显示均线
+    "ema_stack_enabled": True,                  # 是否显示自编常驻叠加均线
     "ai": {
         "provider": "",       # openai / anthropic / deepseek / custom
         "api_key": "",
@@ -63,6 +64,19 @@ _DEFAULT_CONFIG = {
         "BOLL": {"N": 20, "P": 2},
         "捉妖大师": {"N1": 120, "N2": 60, "N3": 20, "M": 10},
         "MA30乖离": {"P": 10, "M": 30},
+        # 自编主图叠加「常驻叠加均线」（参数默认值与 indicators.EMA_STACK_DEFAULTS 保持一致）
+        "EMA_STACK": {
+            "short_n": 10,        # 短期链基准 EMA(C,10)
+            "long_n": 45,         # 长期链基准 EMA(C,45)
+            "smooth_n": 3,        # 递推平滑 EMA(前值,3)
+            "layers": 5,          # 递推层数
+            "short_draw": 4,      # 短期链画到第几层（通达信里 短期5 是 ":=" 隐藏的）
+            "long_draw": 5,       # 长期链画到第几层
+            "short_color_tdx": "FFA6FF",   # 通达信 COLORFFA6FF
+            "long_color_tdx": "8F8F47",    # 通达信 COLOR8F8F47
+            "color_order": "BGR",          # 通达信惯例 BGR；想按 RGB 解读改成 "RGB"
+            "linewidth": 1.0,
+        },
     },
 }
 

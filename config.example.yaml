@@ -17,6 +17,7 @@ ma_periods:
 - 60
 - 120
 ma_enabled: true
+ema_stack_enabled: true   # 自编 K 线常驻叠加均线开关
 ai:
   provider: ''
   api_key: ''
@@ -86,3 +87,17 @@ indicators:
   MA30乖离:
     P: 10
     M: 30
+  # 自编主图叠加：K 线常驻叠加均线
+  # 短期链 EMA(C,10) -> EMA(,3) x4；长期链 EMA(C,45) -> EMA(,3) x4
+  # 颜色是通达信写法；通达信 COLOR 后六位按 BGR 排列（color_order: BGR 会做通道转换）
+  EMA_STACK:
+    short_n: 10
+    long_n: 45
+    smooth_n: 3
+    layers: 5
+    short_draw: 4        # 通达信里「短期5」是 ":=" 隐藏项，这里默认也不画
+    long_draw: 5
+    short_color_tdx: FFA6FF
+    long_color_tdx: 8F8F47
+    color_order: BGR
+    linewidth: 1.0

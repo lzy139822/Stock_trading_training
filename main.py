@@ -740,6 +740,15 @@ class MainWindow(QMainWindow):
         # 其他叠加指标行
         other_overlay_row = QHBoxLayout()
         other_overlay_row.addWidget(QLabel("叠加:"))
+        self.chk_ema_stack = QCheckBox("常驻均线")
+        self.chk_ema_stack.setChecked(self.config.get("ema_stack_enabled", True))
+        self.chk_ema_stack.setToolTip(
+            "自编 K 线常驻叠加均线\n"
+            "短期链: EMA(C,10) 之后递推 EMA(,3) 共 5 层（默认画出前 4 层）\n"
+            "长期链: EMA(C,45) 之后递推 EMA(,3) 共 5 层\n"
+            "周期和颜色可在 config.yaml 的 indicators.EMA_STACK 中调整"
+        )
+        other_overlay_row.addWidget(self.chk_ema_stack)
         self.chk_bbi = QCheckBox("BBI")
         self.chk_bbi.setChecked(False)
         other_overlay_row.addWidget(self.chk_bbi)
@@ -750,7 +759,8 @@ class MainWindow(QMainWindow):
         self.chk_boll.setChecked(False)
         other_overlay_row.addWidget(self.chk_boll)
 
-        for chk in [self.chk_bbi, self.chk_expma, self.chk_boll]:
+        for chk in [self.chk_bbi, self.chk_expma, self.chk_boll,
+                    self.chk_ema_stack]:
             chk.stateChanged.connect(self._on_overlay_changed)
 
         other_overlay_row.addStretch()
@@ -1728,6 +1738,8 @@ class MainWindow(QMainWindow):
             overlays.append("EXPMA")
         if self.chk_boll.isChecked():
             overlays.append("BOLL")
+        if self.chk_ema_stack.isChecked():
+            overlays.append("EMA_STACK")
         return overlays
 
     def _parse_ma_periods(self) -> list[int]:
@@ -1823,6 +1835,10 @@ class MainWindow(QMainWindow):
 
     def _on_overlay_changed(self):
         """主图叠加指标切换回调。"""
+        # 持久化叠加开关状态（原程序的均线开关默认不落盘，这里一并保存）
+        self.config["ma_enabled"] = self.chk_ma.isChecked()
+        self.config["ema_stack_enabled"] = self.chk_ema_stack.isChecked()
+        save_config(self.config)
         if self.training_active or self.df is not None:
             self._refresh_chart()
 

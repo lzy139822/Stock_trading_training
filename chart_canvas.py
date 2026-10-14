@@ -404,6 +404,7 @@ class ChartCanvas(FigureCanvasQTAgg):
                         range(n), arr,
                         color=line_info["color"],
                         linewidth=line_info["linewidth"],
+                        alpha=line_info.get("alpha", 1.0),
                         label=label_text,
                     )
 

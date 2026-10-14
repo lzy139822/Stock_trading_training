@@ -149,6 +149,61 @@ SUB_INDICATOR_REGISTRY = {
 SUB_INDICATOR_NAMES = list(SUB_INDICATOR_REGISTRY.keys())
 
 
+# ============================================================
+# 自编主图叠加：常驻叠加均线（EMA_STACK）
+#
+# 通达信原始公式（用户提供）：
+#   短期1:  EMA(C,10)        COLORFFA6FF
+#   短期2:  EMA(短期1,3)     COLORFFA6FF
+#   短期3:  EMA(短期2,3)     COLORFFA6FF
+#   短期4:  EMA(短期3,3)     COLORFFA6FF
+#   短期5:= EMA(短期4,3)     COLORFFA6FF   <- 通达信 ":=" 表示不输出（不画线）
+#   长期1:  EMA(C,45)        COLOR8F8F47
+#   长期2~5: EMA(前一项,3)   COLOR8F8F47
+#
+# 等价性说明：MyTT.EMA(S,N) = pandas ewm(span=N, adjust=False)，
+# 权重 alpha = 2/(N+1)、首值取序列首值，与通达信 EMA(X,N) 定义一致，
+# 因此递归调用可直接复现通达信结果。
+# ============================================================
+EMA_STACK_DEFAULTS = {
+    "short_n": 10,          # 短期链基准周期 EMA(C, 10)
+    "long_n": 45,           # 长期链基准周期 EMA(C, 45)
+    "smooth_n": 3,          # 递进平滑周期 EMA(前值, 3)
+    "layers": 5,            # 每条链递推层数（通达信公式里是 5 层）
+    "short_draw": 4,        # 短期链实际画到第几层（通达信里 短期5 用 := 隐藏）
+    "long_draw": 5,         # 长期链实际画到第几层
+    "short_color_tdx": "FFA6FF",   # 通达信 COLORFFA6FF
+    "long_color_tdx": "8F8F47",    # 通达信 COLOR8F8F47
+    # 通达信 COLOR 后六位是 BGR 顺序（例：COLOR0000FF 在通达信里显示为红色），
+    # 与常规 RGB 相反。若您想按 RGB 直接解读，把这里改成 "RGB" 即可。
+    "color_order": "BGR",
+    "linewidth": 1.0,
+}
+
+
+def tdx_color_to_hex(code: str, order: str = "BGR") -> str:
+    """
+    把通达信颜色代码转成 matplotlib 可用的 '#RRGGBB'。
+    Args:
+        code: 通达信颜色码，形如 'FFA6FF'（可带或不带 COLOR 前缀、'#'）
+        order: 'BGR'（通达信惯例，默认）或 'RGB'
+    Returns:
+        str: '#RRGGBB'；解析失败返回白色
+    """
+    text = str(code).strip().upper()
+    if text.startswith("COLOR"):
+        text = text[5:]
+    text = text.lstrip("#")
+    if len(text) != 6 or any(c not in "0123456789ABCDEF" for c in text):
+        return "#FFFFFF"
+    c0, c1, c2 = text[0:2], text[2:4], text[4:6]
+    if str(order).strip().upper() == "BGR":
+        r, g, b = c2, c1, c0      # 交换红蓝通道
+    else:
+        r, g, b = c0, c1, c2
+    return f"#{r}{g}{b}"
+
+
 class IndicatorHub:
     """
     技术指标计算中心。
@@ -261,6 +316,48 @@ class IndicatorHub:
         except Exception:
             pass
 
+        # ---- 自编常驻叠加均线（EMA_STACK）----
+        try:
+            self.main_overlays.update(self._calc_ema_stack(close))
+        except Exception as e:
+            print(f"[警告] EMA_STACK 计算失败: {e}")
+
+    # ============================================================
+    # 自编主图叠加：常驻叠加均线
+    # ============================================================
+    def _ema_stack_params(self) -> dict:
+        """读取 EMA_STACK 参数（用户配置优先，缺失项用默认值兜底）。"""
+        params = dict(EMA_STACK_DEFAULTS)
+        for k, v in (self.config.get("EMA_STACK") or {}).items():
+            if v is not None:
+                params[k] = v
+        return params
+
+    def _calc_ema_stack(self, close: np.ndarray) -> dict:
+        """
+        递推计算短期链 / 长期链 EMA。
+
+        短期链: S1=EMA(C,short_n), S(i)=EMA(S(i-1), smooth_n)
+        长期链: L1=EMA(C,long_n),  L(i)=EMA(L(i-1), smooth_n)
+
+        Returns:
+            dict: {'ESTK_S1'..'ESTK_S5', 'ESTK_L1'..'ESTK_L5'}
+        """
+        params = self._ema_stack_params()
+        layers = max(1, int(params["layers"]))
+        smooth_n = max(1, int(params["smooth_n"]))
+        out = {}
+        for prefix, base_n in (
+            ("ESTK_S", int(params["short_n"])),
+            ("ESTK_L", int(params["long_n"])),
+        ):
+            series = EMA(close, base_n)
+            out[f"{prefix}1"] = np.array(series, dtype=float)
+            for i in range(2, layers + 1):
+                series = EMA(np.array(series, dtype=float), smooth_n)
+                out[f"{prefix}{i}"] = np.array(series, dtype=float)
+        return out
+
     def get_sub_indicator(self, name: str) -> dict:
         """
         获取副图指标的绘图数据。
@@ -344,7 +441,38 @@ class IndicatorHub:
                             "color": clr,
                             "linewidth": 0.8,
                         })
+            elif name == "EMA_STACK":
+                lines.extend(self._ema_stack_lines())
 
+        return lines
+
+    def _ema_stack_lines(self) -> list[dict]:
+        """
+        组装自编常驻叠加均线的绘图数据。
+
+        同一条链内每层同色，越深的层透明度略低，便于区分递推顺序。
+        """
+        params = self._ema_stack_params()
+        chains = [
+            ("ESTK_S", "短", int(params["short_draw"]),
+             tdx_color_to_hex(params["short_color_tdx"], params["color_order"])),
+            ("ESTK_L", "长", int(params["long_draw"]),
+             tdx_color_to_hex(params["long_color_tdx"], params["color_order"])),
+        ]
+        lw = float(params["linewidth"])
+        lines = []
+        for prefix, label, draw_n, color in chains:
+            for i in range(1, draw_n + 1):
+                arr = self.main_overlays.get(f"{prefix}{i}")
+                if arr is None:
+                    continue
+                lines.append({
+                    "name": f"{label}{i}",
+                    "array": arr,
+                    "color": color,
+                    "linewidth": lw,
+                    "alpha": round(max(0.35, 1.0 - 0.12 * (i - 1)), 2),
+                })
         return lines
 
     def get_min_warmup(self) -> int:
